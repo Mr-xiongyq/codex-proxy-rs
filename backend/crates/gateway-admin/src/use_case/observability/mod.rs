@@ -234,6 +234,7 @@ impl ObservabilityService for DefaultObservabilityService {
                 range,
                 UsageFilter::default(),
                 Granularity::for_range(range),
+                false,
             )
             .await
             .map_err(|error| map_store_error(error, "dashboard trend"))?;
@@ -291,7 +292,7 @@ impl ObservabilityService for DefaultObservabilityService {
         let granularity = Granularity::for_range(range);
         let observation = self
             .store
-            .usage_insights_observation(range, filter, granularity)
+            .usage_insights_observation(range, filter, granularity, true)
             .await
             .map_err(|error| map_store_error(error, "usage insights"))?;
         let mut standard_costs = UsageCostScenarios::default();

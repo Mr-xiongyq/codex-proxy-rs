@@ -456,11 +456,13 @@ pub trait ObservabilityStore: Send + Sync {
     ) -> AdminStoreResult<Vec<RequestMetricPoint>>;
 
     /// 同一读取快照中的汇总、趋势和已投影情景费用
+    /// 不需要并发时关闭 include_concurrency，返回空并发序列并跳过明细计算
     async fn usage_insights_observation(
         &self,
         range: TimeRange,
         filter: UsageFilter,
         granularity: Granularity,
+        include_concurrency: bool,
     ) -> AdminStoreResult<UsageInsightsObservation>;
 
     async fn list_usage_records(&self, query: UsageQuery) -> AdminStoreResult<UsagePage>;

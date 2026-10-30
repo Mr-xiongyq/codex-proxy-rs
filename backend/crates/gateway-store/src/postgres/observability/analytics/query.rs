@@ -335,6 +335,7 @@ impl<'a> AnalyticsSnapshot<'a> {
         filter: &UsageRecordFilter,
         granularity: ObservationGranularity,
         timezone: gateway_core::time::DeploymentTimeZone,
+        include_concurrency: bool,
     ) -> StoreResult<(
         UsageOverview,
         Vec<RequestMetricPoint>,
@@ -355,9 +356,12 @@ impl<'a> AnalyticsSnapshot<'a> {
                 })
             })
             .collect::<StoreResult<Vec<_>>>()?;
-        let concurrency = self
-            .concurrency(range, filter, granularity, timezone)
-            .await?;
+        let concurrency = if include_concurrency {
+            self.concurrency(range, filter, granularity, timezone)
+                .await?
+        } else {
+            Vec::new()
+        };
         // 趋势已包含可合并的完整指标和情景费用，概览直接复用同一份状态
         // 精确分位数不可跨桶合并，明细回退时仍按完整区间单独计算概览
         let overview = if states.values().any(MetricState::has_exact_percentiles) {

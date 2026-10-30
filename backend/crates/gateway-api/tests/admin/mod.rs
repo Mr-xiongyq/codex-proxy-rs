@@ -693,6 +693,7 @@ pub(super) struct MemoryObservations {
     pub trend: Option<Vec<RequestMetricPoint>>,
     pub concurrency: Vec<gateway_admin::model::observability::UsageConcurrencyPoint>,
     pub summaries: Vec<(TimeRange, UsageFilter)>,
+    pub concurrency_selections: Vec<bool>,
     pub trends: Vec<(TimeRange, UsageFilter)>,
     pub records: Vec<UsageQuery>,
     pub errors: Vec<OpsErrorQuery>,
@@ -1491,8 +1492,10 @@ impl ObservabilityStore for UnusedStore {
         range: TimeRange,
         filter: UsageFilter,
         _: Granularity,
+        include_concurrency: bool,
     ) -> AdminStoreResult<gateway_admin::model::observability::UsageInsightsObservation> {
         let mut data = self.observations.lock().expect("observations");
+        data.concurrency_selections.push(include_concurrency);
         data.summaries.push((range, filter.clone()));
         data.trends.push((range, filter));
         Ok(
@@ -1507,7 +1510,11 @@ impl ObservabilityStore for UnusedStore {
                     .clone()
                     .ok_or_else(|| unavailable("usage trend"))?,
                 costs: Vec::new(),
-                concurrency: data.concurrency.clone(),
+                concurrency: if include_concurrency {
+                    data.concurrency.clone()
+                } else {
+                    Vec::new()
+                },
             },
         )
     }

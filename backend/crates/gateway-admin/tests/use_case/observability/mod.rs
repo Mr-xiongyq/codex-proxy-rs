@@ -1046,6 +1046,50 @@ async fn dashboard_should_preserve_provider_plan_names() {
     }
 }
 
+#[tokio::test]
+async fn dashboard_and_usage_insights_keep_concurrency_cache_entries_separate() {
+    for dashboard_first in [true, false] {
+        let now = Utc::now();
+        let range = observation_range(now);
+        let store = Arc::new(FixtureObservabilityStore::new(range));
+        store
+            .concurrency
+            .lock()
+            .unwrap()
+            .push(UsageConcurrencyPoint {
+                bucket_start: range.start,
+                average_concurrency: 2.0,
+                peak_concurrency: 3,
+            });
+        let services = observability_services(store.clone()).await;
+        for dashboard in [
+            dashboard_first,
+            !dashboard_first,
+            dashboard_first,
+            !dashboard_first,
+        ] {
+            if dashboard {
+                services
+                    .observability()
+                    .dashboard_trend(range, TrendKind::Usage)
+                    .await
+                    .unwrap();
+            } else {
+                let result = services
+                    .observability()
+                    .usage_insights(range, UsageFilter::default())
+                    .await
+                    .unwrap();
+                assert_eq!(result.performance.load.peak_concurrency, 3);
+            }
+        }
+        assert_eq!(
+            *store.concurrency_selections.lock().unwrap(),
+            vec![!dashboard_first, dashboard_first]
+        );
+    }
+}
+
 struct FixtureObservabilityStore {
     yesterday: Mutex<RequestMetrics>,
     trend: Mutex<Vec<RequestMetricPoint>>,
@@ -1053,6 +1097,7 @@ struct FixtureObservabilityStore {
     projected_costs: Mutex<Vec<UsageProjectedCostPoint>>,
     concurrency: Mutex<Vec<UsageConcurrencyPoint>>,
     insights_fail: AtomicBool,
+    concurrency_selections: Mutex<Vec<bool>>,
     summary_fail: AtomicBool,
     diagnostics: Mutex<DiagnosticsObservation>,
     runtime_slots: Mutex<Option<DashboardRuntimeSlots>>,
@@ -1081,6 +1126,7 @@ impl FixtureObservabilityStore {
             projected_costs: Mutex::new(Vec::new()),
             concurrency: Mutex::new(Vec::new()),
             insights_fail: AtomicBool::new(false),
+            concurrency_selections: Mutex::new(Vec::new()),
             summary_fail: AtomicBool::new(false),
             diagnostics: Mutex::new(DiagnosticsObservation::default()),
             runtime_slots: Mutex::new(None),
@@ -1197,8 +1243,13 @@ impl ObservabilityStore for FixtureObservabilityStore {
         _: TimeRange,
         _: UsageFilter,
         granularity: Granularity,
+        include_concurrency: bool,
     ) -> AdminStoreResult<UsageInsightsObservation> {
         self.usage_granularities.lock().unwrap().push(granularity);
+        self.concurrency_selections
+            .lock()
+            .unwrap()
+            .push(include_concurrency);
         if self.insights_fail.load(Ordering::SeqCst) {
             return Err(super::unavailable("projection read failed"));
         }
@@ -1210,7 +1261,11 @@ impl ObservabilityStore for FixtureObservabilityStore {
                 .lock()
                 .expect("projected costs")
                 .clone(),
-            concurrency: self.concurrency.lock().expect("concurrency").clone(),
+            concurrency: if include_concurrency {
+                self.concurrency.lock().expect("concurrency").clone()
+            } else {
+                Vec::new()
+            },
         })
     }
 
